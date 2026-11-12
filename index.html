@@ -188,7 +188,7 @@ function getDlWorker() {
   if (!dlWorker) {
     dlWorker = new Worker('dl-worker.js', { type: 'module' });
     dlWorker.onmessage = onDlMessage;
-    dlWorker.onerror = (e) => log('dl-worker error: ' + e.message);
+    dlWorker.onerror = (e) => { log('dl-worker error: ' + e.message); dlWorker = null; };
   }
   return dlWorker;
 }
@@ -258,7 +258,7 @@ function getDbWorker() {
   if (!dbWorker) {
     dbWorker = new Worker('db-worker.js?v=2', { type: 'module' });
     dbWorker.onmessage = onDbMessage;
-    dbWorker.onerror = (e) => log('db-worker error: ' + e.message);
+    dbWorker.onerror = (e) => { log('db-worker error: ' + e.message); dbWorker = null; };
   }
   return dbWorker;
 }
