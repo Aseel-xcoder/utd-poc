@@ -1,6 +1,9 @@
 // db-worker.js — opens the OPFS-resident SQLite database with the
-// official sqlite3 WASM build (opfs VFS), runs the app's real queries,
-// and decrypts payloads with the ported Android decryption.
+// official sqlite3 WASM build, runs the app's real queries, and
+// decrypts payloads with the ported Android decryption.
+// Two storage paths: the classic OPFS VFS when available (needs
+// cross-origin isolation), otherwise the OPFS SAH Pool VFS, which
+// needs no isolation — only sync access handles.
 
 import sqlite3InitModule from './index.mjs';
 import { decryptAsset, browserInflate } from './utd-crypto.mjs';
@@ -8,10 +11,58 @@ import { decryptAsset, browserInflate } from './utd-crypto.mjs';
 const post = (msg) => self.postMessage(msg);
 let sqlite3 = null;
 let db = null;
+let poolUtil = null;
 
 async function init() {
   if (sqlite3) return;
   sqlite3 = await sqlite3InitModule();
+}
+
+// Fallback path when the classic OPFS VFS is unavailable (it needs
+// cross-origin isolation, which some hosts cannot provide): the
+// OPFS SAH Pool VFS needs no isolation at all — only sync access
+// handles. The database file that dl-worker wrote into the OPFS root
+// is stream-imported into the pool in 4 MB chunks (no giant buffer),
+// once; later opens reuse the pooled copy.
+async function importIntoPool(fileName) {
+  const root = await navigator.storage.getDirectory();
+  let fh;
+  try {
+    fh = await root.getFileHandle(fileName);
+  } catch (e) {
+    throw new Error('القاعدة غير موجودة في OPFS — نزّلها أولاً من القسم ١');
+  }
+  const sah = await fh.createSyncAccessHandle();
+  const size = sah.getSize();
+  const CHUNK = 4 * 1024 * 1024;
+  const buf = new Uint8Array(CHUNK);
+  let offset = 0;
+  try {
+    await poolUtil.importDb('/' + fileName, async () => {
+      if (offset >= size) return undefined;
+      const n = sah.read(buf, { at: offset });
+      offset += n;
+      return buf.slice(0, n);
+    });
+  } finally {
+    try { sah.close(); } catch (e) { /* noop */ }
+  }
+}
+
+async function openDatabase(fileName) {
+  // Path 1: classic OPFS VFS (requires crossOriginIsolated).
+  if ('opfs' in sqlite3) {
+    try {
+      return { handle: new sqlite3.oo1.OpfsDb('/' + fileName, 'r'), vfs: 'opfs' };
+    } catch (e) { /* fall through to the pool */ }
+  }
+  // Path 2: SAH Pool VFS (no isolation required).
+  if (!poolUtil) poolUtil = await sqlite3.installOpfsSAHPoolVfs({});
+  const vfsPath = '/' + fileName;
+  if (!poolUtil.getFileNames().includes(vfsPath)) {
+    await importIntoPool(fileName);
+  }
+  return { handle: new poolUtil.OpfsSAHPoolDb(vfsPath), vfs: 'sahpool' };
 }
 
 function queryOne(sql, bind) {
@@ -35,13 +86,10 @@ self.onmessage = async (ev) => {
       await init();
       const opfsAvailable = 'opfs' in sqlite3;
       post({ type: 'sqlite-ready', libVersion: sqlite3.version.libVersion, opfsAvailable });
-      if (!opfsAvailable) {
-        post({ type: 'error', message: 'OPFS VFS غير متاح (يلزم crossOriginIsolated — ترويسات COOP/COEP)' });
-        return;
-      }
       if (db) { try { db.close(); } catch (e) { /* noop */ } db = null; }
-      db = new sqlite3.oo1.OpfsDb('/' + msg.fileName, 'r');
-      const counts = {};
+      const opened = await openDatabase(msg.fileName);
+      db = opened.handle;
+      const counts = { vfs: opened.vfs };
       for (const t of ['topic_asset', 'graphic_asset', 'other_asset']) {
         const row = queryOne(`SELECT COUNT(*) FROM ${t}`);
         counts[t] = row ? row[0] : null;
