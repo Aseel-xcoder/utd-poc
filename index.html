@@ -17,7 +17,8 @@
   if (window.crossOriginIsolated) return;
   if (!('serviceWorker' in navigator)) return;
   var KEY = 'coi-reloaded';
-  navigator.serviceWorker.register('coi-serviceworker.js').then(function () {
+  navigator.serviceWorker.register('coi-serviceworker.js').then(function (reg) {
+    if (reg && reg.update) reg.update();
     if (navigator.serviceWorker.controller) {
       if (!sessionStorage.getItem(KEY)) { sessionStorage.setItem(KEY, '1'); location.reload(); }
       return;
