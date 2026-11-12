@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>نموذج اختبار UpToDate — قاعدة محلية داخل المتصفح</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#005e6b">
+<script>
+// Cross-origin isolation bootstrap: the sqlite3 "opfs" VFS needs
+// SharedArrayBuffer, which needs COOP/COEP headers. Static hosts cannot
+// set them, so a service worker adds them and the page reloads once.
+(function () {
+  if (window.crossOriginIsolated) return;
+  if (!('serviceWorker' in navigator)) return;
+  var KEY = 'coi-reloaded';
+  navigator.serviceWorker.register('coi-serviceworker.js').then(function () {
+    if (navigator.serviceWorker.controller) {
+      if (!sessionStorage.getItem(KEY)) { sessionStorage.setItem(KEY, '1'); location.reload(); }
+      return;
+    }
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!sessionStorage.getItem(KEY)) { sessionStorage.setItem(KEY, '1'); location.reload(); }
+    });
+  }).catch(function () { /* reported in the environment panel */ });
+})();
+</script>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; background: #f4f6f7; color: #123; }
+  header { background: #005e6b; color: #fff; padding: 14px 18px; }
+  header h1 { font-size: 19px; margin: 0 0 4px; }
+  header p { margin: 0; opacity: .85; font-size: 13px; }
+  main { max-width: 860px; margin: 0 auto; padding: 14px; }
+  section { background: #fff; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  h2 { font-size: 16px; margin: 0 0 10px; color: #005e6b; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  td { padding: 5px 4px; border-bottom: 1px solid #eef1f2; vertical-align: top; }
+  td.k { color: #567; width: 42%; }
+  .ok { color: #0a7d2c; font-weight: 600; }
+  .bad { color: #c0272d; font-weight: 600; }
+  .warn { color: #b26a00; font-weight: 600; }
+  button { background: #005e6b; color: #fff; border: 0; border-radius: 8px; padding: 10px 16px; font-size: 15px; cursor: pointer; }
+  button.secondary { background: #e8eef0; color: #123; }
+  button:disabled { opacity: .45; cursor: default; }
+  input[type=text], input[type=number] { padding: 9px; border: 1px solid #c8d2d6; border-radius: 8px; font-size: 15px; width: 100%; box-sizing: border-box; }
+  input[type=number] { width: 110px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+  progress { width: 100%; height: 18px; }
+  .nums { font-size: 13px; color: #345; direction: ltr; text-align: left; }
+  #log { background: #0d1b1e; color: #bfe3ea; border-radius: 8px; padding: 10px; font-family: ui-monospace, monospace; font-size: 12px; height: 180px; overflow: auto; white-space: pre-wrap; direction: ltr; text-align: left; }
+  #reader { border: 1px solid #e2e8ea; border-radius: 8px; padding: 12px; margin-top: 10px; overflow-x: auto; }
+  #reader img { max-width: 100%; height: auto; }
+  .small { font-size: 12.5px; color: #567; }
+  label.radio { display: block; padding: 6px 0; font-size: 14.5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>نموذج اختبار: UpToDate بقاعدة محلية داخل المتصفح</h1>
+  <p>الهدف: إثبات أن القاعدة كاملة تعيش داخل الهاتف (OPFS) وتُقرأ محلياً بلا خادم — تحميل مرة واحدة، ثم عمل بلا إنترنت.</p>
+</header>
+<main>
+
+<section>
+  <h2>٠) بيئة الجهاز</h2>
+  <table id="envTable"></table>
+  <div class="row">
+    <button class="secondary" id="persistBtn">طلب التخزين الدائم (persist)</button>
+    <span class="small">إن أظهر «crossOriginIsolated: لا» أعد تحميل الصفحة مرة؛ وإن بقيت، استضف الملفات على Cloudflare Pages (ملف _headers مرفق).</span>
+  </div>
+</section>
+
+<section>
+  <h2>١) تنزيل القاعدة إلى داخل الهاتف (OPFS)</h2>
+  <label class="radio"><input type="radio" name="target" value="poc" checked>
+    قاعدة الاختبار — 18 MB (150 موضوعاً حقيقياً مشفّراً من قاعدتك + 250 صورة)</label>
+  <label class="radio"><input type="radio" name="target" value="full">
+    القاعدة الكاملة — 2.42 GB (اختبار الحجم الحقيقي؛ يحتاج رابطاً مباشراً لملف data.sqlite)</label>
+  <div class="row" id="fullUrlRow" style="display:none">
+    <input type="text" id="fullUrl" placeholder="https://.../data.sqlite" dir="ltr">
+  </div>
+  <div class="row">
+    <button id="dlBtn">بدء / استئناف التنزيل</button>
+    <button class="secondary" id="resetBtn">مسح القاعدة من الهاتف</button>
+  </div>
+  <progress id="dlProg" value="0" max="100"></progress>
+  <div class="nums" id="dlNums">—</div>
+  <p class="small">اختبار الاستئناف: أثناء التنزيل أغلق الصفحة تماماً، ثم افتحها واضغط الزر نفسه — يجب أن يكمل من حيث توقف (إن كان خادم الاستضافة يدعم Range).</p>
+</section>
+
+<section>
+  <h2>٢) فتح القاعدة وقراءة موضوع حقيقي منها</h2>
+  <div class="row">
+    <button id="openBtn">فتح القاعدة من OPFS</button>
+    <span id="counts" class="small"></span>
+  </div>
+  <div class="row">
+    <span>رقم الموضوع:</span>
+    <input type="number" id="topicId" value="1" min="1">
+    <button id="topicBtn" disabled>افتح الموضوع</button>
+    <button class="secondary" id="graphicBtn" disabled>جرّب صورة من القاعدة</button>
+  </div>
+  <div id="topicMeta" class="small"></div>
+  <div id="reader" style="display:none"></div>
+  <div id="graphicBox"></div>
+</section>
+
+<section>
+  <h2>٣) سجل الاختبار</h2>
+  <div id="log"></div>
+  <div class="row">
+    <button class="secondary" id="copyBtn">نسخ التقرير (أرسله لي)</button>
+  </div>
+  <p class="small">اختبارات المتابعة بعد النجاح هنا: (أ) فعّل وضع الطيران وافتح الموضوع من جديد — يجب أن يعمل. (ب) أغلق التطبيق/المتصفح وأعد فتحه — القاعدة تبقى. (ج) ثبّت الصفحة على الشاشة الرئيسية وكرر من الأيقونة.</p>
+</section>
+
+</main>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const logEl = $('log');
+function log(msg) {
+  const line = '[' + new Date().toLocaleTimeString('en-GB') + '] ' + msg;
+  logEl.textContent += line + '\n';
+  logEl.scrollTop = logEl.scrollHeight;
+}
+const GB = (n) => (n / 1073741824).toFixed(2) + ' GB';
+const MB = (n) => (n / 1048576).toFixed(1) + ' MB';
+
+const TARGETS = {
+  poc:  { fileName: 'poc_data.sqlite', size: 18264064,
+          sha256: 'f6f71d81a05253e955d07ecf1d6842fb1a1b69c76909d87e939fa8d6b8d05a03',
+          url: 'poc_data.sqlite' },
+  full: { fileName: 'data.sqlite', size: 2419353600,
+          sha256: '45c3bab8cce9d30ba3a988ca081aa4e5a31391853514bc5889d86d0322df2242',
+          url: '' },
+};
+function selectedTarget() {
+  const which = document.querySelector('input[name=target]:checked').value;
+  const t = Object.assign({}, TARGETS[which]);
+  if (which === 'full') t.url = $('fullUrl').value.trim();
+  return t;
+}
+document.querySelectorAll('input[name=target]').forEach((r) =>
+  r.addEventListener('change', () => {
+    $('fullUrlRow').style.display =
+      document.querySelector('input[name=target]:checked').value === 'full' ? '' : 'none';
+  }));
+
+// ---------------- environment panel ----------------
+(async function env() {
+  const rows = [];
+  const yn = (b) => b ? '<span class="ok">نعم</span>' : '<span class="bad">لا</span>';
+  rows.push(['المتصفح', navigator.userAgent]);
+  rows.push(['سياق آمن (HTTPS/localhost)', yn(window.isSecureContext)]);
+  rows.push(['crossOriginIsolated (يلزم لـ OPFS VFS)', yn(window.crossOriginIsolated)]);
+  rows.push(['OPFS متاح (navigator.storage.getDirectory)',
+    yn(!!(navigator.storage && navigator.storage.getDirectory))]);
+  rows.push(['DecompressionStream (فك ضغط المواضيع)', yn(typeof DecompressionStream !== 'undefined')]);
+  try {
+    const est = await navigator.storage.estimate();
+    rows.push(['حصة التخزين المقدّرة لهذا الموقع', GB(est.quota || 0)]);
+    rows.push(['المستخدم حالياً', MB(est.usage || 0)]);
+  } catch (e) { rows.push(['حصة التخزين', '<span class="bad">' + e.message + '</span>']); }
+  try {
+    const p = await navigator.storage.persisted();
+    rows.push(['التخزين دائم الآن (persisted)', p ? '<span class="ok">نعم</span>' : '<span class="warn">ليس بعد</span>']);
+  } catch (e) { /* older browsers */ }
+  $('envTable').innerHTML = rows.map(([k, v]) => '<tr><td class="k">' + k + '</td><td>' + v + '</td></tr>').join('');
+  log('environment checked');
+})();
+$('persistBtn').addEventListener('click', async () => {
+  try {
+    const granted = await navigator.storage.persist();
+    log('storage.persist() -> ' + granted);
+    alert(granted ? 'تم منح التخزين الدائم' : 'لم يُمنح التخزين الدائم (يُمنح عادة بعد التثبيت على الشاشة الرئيسية وتكرار الاستخدام)');
+  } catch (e) { log('persist error: ' + e.message); }
+});
+
+// ---------------- download worker ----------------
+let dlWorker = null;
+function getDlWorker() {
+  if (!dlWorker) {
+    dlWorker = new Worker('dl-worker.js', { type: 'module' });
+    dlWorker.onmessage = onDlMessage;
+    dlWorker.onerror = (e) => log('dl-worker error: ' + e.message);
+  }
+  return dlWorker;
+}
+let dlStartTime = 0, dlStartBytes = 0;
+function onDlMessage(ev) {
+  const m = ev.data;
+  if (m.type === 'progress') {
+    const pct = (100 * m.done / m.total).toFixed(1);
+    $('dlProg').value = pct;
+    let speed = '';
+    if (dlStartTime && m.done > dlStartBytes) {
+      const secs = (Date.now() - dlStartTime) / 1000;
+      if (secs > 0) speed = ' @ ' + MB((m.done - dlStartBytes) / secs) + '/s';
+    }
+    $('dlNums').textContent = MB(m.done) + ' / ' + MB(m.total) + ' (' + pct + '%)' + speed +
+      (m.resumedFrom ? ' — استؤنف من ' + MB(m.resumedFrom) : '');
+  } else if (m.type === 'note') {
+    log(m.message);
+  } else if (m.type === 'verifying') {
+    log('download complete — verifying SHA-256 (reading back from OPFS)...');
+    $('dlNums').textContent = 'جارٍ التحقق من البصمة...';
+  } else if (m.type === 'verify-progress') {
+    $('dlNums').textContent = 'verifying: ' + MB(m.done) + ' / ' + MB(m.total);
+  } else if (m.type === 'done') {
+    log('SHA-256: ' + m.digest);
+    log(m.shaOk ? 'SHA-256 MATCH ✔ — الملف سليم داخل OPFS' : 'SHA-256 MISMATCH ✘ — الملف تالف');
+    $('dlNums').textContent = m.shaOk ? 'اكتمل وسليم ✔' : 'اكتمل لكن البصمة لا تطابق ✘';
+    $('dlProg').value = 100;
+    $('dlBtn').disabled = false;
+  } else if (m.type === 'partial-size') {
+    if (m.size > 0) log('partial file in OPFS: ' + MB(m.size) + ' (قابل للاستئناف)');
+  } else if (m.type === 'reset-done') {
+    log('database file removed from OPFS');
+    $('dlProg').value = 0; $('dlNums').textContent = '—';
+  } else if (m.type === 'error') {
+    log('ERROR: ' + m.message);
+    $('dlBtn').disabled = false;
+  }
+}
+window.addEventListener('load', () => {
+  try {
+    getDlWorker().postMessage({ type: 'partial-size', fileName: TARGETS.poc.fileName });
+    getDlWorker().postMessage({ type: 'partial-size', fileName: TARGETS.full.fileName });
+  } catch (e) { /* worker may fail on very old browsers; env panel shows why */ }
+});
+$('dlBtn').addEventListener('click', () => {
+  const t = selectedTarget();
+  if (!t.url) { alert('ضع رابط ملف data.sqlite أولاً'); return; }
+  $('dlBtn').disabled = true;
+  dlStartTime = Date.now(); dlStartBytes = 0;
+  log('download start: ' + t.fileName + ' (' + MB(t.size) + ') from ' + t.url);
+  getDlWorker().postMessage({
+    type: 'start', url: t.url, fileName: t.fileName,
+    expectedSize: t.size, expectedSha256: t.sha256,
+  });
+});
+$('resetBtn').addEventListener('click', () => {
+  const t = selectedTarget();
+  getDlWorker().postMessage({ type: 'reset', fileName: t.fileName });
+  $('counts').textContent = '';
+  $('topicBtn').disabled = true; $('graphicBtn').disabled = true;
+});
+
+// ---------------- database worker ----------------
+let dbWorker = null;
+function getDbWorker() {
+  if (!dbWorker) {
+    dbWorker = new Worker('db-worker.js', { type: 'module' });
+    dbWorker.onmessage = onDbMessage;
+    dbWorker.onerror = (e) => log('db-worker error: ' + e.message);
+  }
+  return dbWorker;
+}
+function onDbMessage(ev) {
+  const m = ev.data;
+  if (m.type === 'sqlite-ready') {
+    log('SQLite ' + m.libVersion + ' initialized; OPFS VFS available: ' + m.opfsAvailable);
+  } else if (m.type === 'opened') {
+    log('database opened from OPFS ✔ counts: ' + JSON.stringify(m.counts));
+    $('counts').textContent = 'مواضيع: ' + m.counts.topic_asset + ' — صور: ' + m.counts.graphic_asset;
+    $('topicBtn').disabled = false; $('graphicBtn').disabled = false;
+  } else if (m.type === 'topic-result') {
+    if (!m.found) { log('topic ' + m.id + ': NOT FOUND'); return; }
+    const obj = JSON.parse(m.jsonText);
+    const title = (obj.topicInfo && obj.topicInfo.title) || '(بلا عنوان)';
+    log('topic ' + m.id + ' fetched+decrypted in ' + m.ms + ' ms: ' + title);
+    $('topicMeta').textContent = 'العنوان: ' + title + ' — زمن الجلب وفك التشفير: ' + m.ms + 'ms';
+    const reader = $('reader');
+    reader.style.display = '';
+    reader.innerHTML = obj.bodyHtml || '';
+    reader.scrollIntoView({ behavior: 'smooth' });
+  } else if (m.type === 'graphic-result') {
+    if (!m.found) { log('graphic: none with embedded image found'); return; }
+    const obj = JSON.parse(m.jsonText);
+    log('graphic ' + m.id + ' fetched+decrypted: ' + (obj.graphicInfo && obj.graphicInfo.displayName));
+    let html = obj.imageHtml || '';
+    if (obj.base64Image) {
+      html = html.replace(/src="[^"]*"/, 'src="data:image/jpeg;base64,' + obj.base64Image + '"');
+      if (!/src=/.test(html)) html = '<img src="data:image/jpeg;base64,' + obj.base64Image + '">' + html;
+    }
+    $('graphicBox').innerHTML = '<h3 style="margin:12px 0 6px">صورة من داخل القاعدة المحلية:</h3>' + html;
+    $('graphicBox').scrollIntoView({ behavior: 'smooth' });
+  } else if (m.type === 'error') {
+    log('ERROR: ' + m.message);
+  }
+}
+$('openBtn').addEventListener('click', () => {
+  const t = selectedTarget();
+  log('opening ' + t.fileName + ' from OPFS...');
+  getDbWorker().postMessage({ type: 'open', fileName: t.fileName });
+});
+$('topicBtn').addEventListener('click', () => {
+  const id = $('topicId').value || '1';
+  getDbWorker().postMessage({ type: 'topic', id });
+});
+$('graphicBtn').addEventListener('click', () => {
+  getDbWorker().postMessage({ type: 'graphic' });
+});
+$('copyBtn').addEventListener('click', async () => {
+  const est = await navigator.storage.estimate().catch(() => ({}));
+  const report = 'UTD POC report\nUA: ' + navigator.userAgent +
+    '\nsecureContext: ' + window.isSecureContext +
+    '\ncrossOriginIsolated: ' + window.crossOriginIsolated +
+    '\nquota: ' + (est.quota || '?') + ' usage: ' + (est.usage || '?') +
+    '\n--- log ---\n' + logEl.textContent;
+  try { await navigator.clipboard.writeText(report); alert('نُسخ التقرير — الصقه لي في المحادثة'); }
+  catch (e) { prompt('انسخ التقرير:', report); }
+});
+</script>
+</body>
+</html>
