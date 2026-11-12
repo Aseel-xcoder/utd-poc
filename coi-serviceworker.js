@@ -9,7 +9,7 @@
 //    bundled `_headers` for Cloudflare Pages) job 2 is a no-op bonus;
 //    the SAH Pool database path does not need isolation anyway.
 
-const CACHE = 'utd-shell-v2';
+const CACHE = 'utd-shell-v3';
 const SHELL = [
   'index.html',
   'dl-worker.js',
@@ -70,14 +70,21 @@ self.addEventListener('fetch', (event) => {
   if (request.cache === 'only-if-cached' && request.mode !== 'same-origin') {
     return; // Chrome bug workaround for cache-only requests
   }
+  // Network-first: a cached shell must never freeze the app on an old
+  // version. Online loads always fetch fresh files (and refresh the
+  // cache); the cache answers only when the network fails (offline).
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
-    const cached = await cache.match(request, { ignoreSearch: true });
-    if (cached) return withIsolationHeaders(cached);
-    const response = await fetch(request);
-    if (response.ok && url.origin === self.location.origin) {
-      cache.put(request, response.clone()).catch(() => {});
+    try {
+      const response = await fetch(request);
+      if (response.ok && url.origin === self.location.origin) {
+        cache.put(request, response.clone()).catch(() => {});
+      }
+      return withIsolationHeaders(response);
+    } catch (e) {
+      const cached = await cache.match(request, { ignoreSearch: true });
+      if (cached) return withIsolationHeaders(cached);
+      throw e;
     }
-    return withIsolationHeaders(response);
   })());
 });
