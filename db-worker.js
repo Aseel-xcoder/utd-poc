@@ -2,7 +2,7 @@
 // official sqlite3 WASM build (opfs VFS), runs the app's real queries,
 // and decrypts payloads with the ported Android decryption.
 
-import sqlite3InitModule from './sqlite3/index.mjs';
+import sqlite3InitModule from './index.mjs';
 import { decryptAsset, browserInflate } from './utd-crypto.mjs';
 
 const post = (msg) => self.postMessage(msg);
