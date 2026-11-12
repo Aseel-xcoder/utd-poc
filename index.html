@@ -90,6 +90,16 @@
   <progress id="dlProg" value="0" max="100"></progress>
   <div class="nums" id="dlNums">—</div>
   <p class="small">اختبار الاستئناف: أثناء التنزيل أغلق الصفحة تماماً، ثم افتحها واضغط الزر نفسه — يجب أن يكمل من حيث توقف (إن كان خادم الاستضافة يدعم Range).</p>
+  <hr style="border:none;border-top:1px solid #e2e8ea;margin:14px 0">
+  <p style="margin:0 0 6px"><strong>أو — مثل تطبيق أندرويد — اختر ملف القاعدة من هاتفك (Select DB):</strong></p>
+  <p class="small" style="margin:0 0 8px">اختر ملف <span dir="ltr">data.sqlite</span> الكامل الموجود عندك (2.42 GB) وسيُستورد إلى داخل التطبيق مباشرة مع التحقق من بصمته — بلا رفع ولا تنزيل. يحتاج نحو 2.5 GB حرة إضافية أثناء الاستيراد، وبعد نجاحه يمكنك حذف النسخة الأصلية من التنزيلات.</p>
+  <div class="row">
+    <input type="file" id="filePick" style="flex:1;min-width:200px">
+  </div>
+  <div class="row">
+    <button id="importBtn">استيراد الملف المختار إلى التطبيق</button>
+    <span class="nums" id="importNums"></span>
+  </div>
 </section>
 
 <section>
@@ -256,7 +266,7 @@ $('resetBtn').addEventListener('click', () => {
 let dbWorker = null;
 function getDbWorker() {
   if (!dbWorker) {
-    dbWorker = new Worker('db-worker.js?v=2', { type: 'module' });
+    dbWorker = new Worker('db-worker.js?v=3', { type: 'module' });
     dbWorker.onmessage = onDbMessage;
     dbWorker.onerror = (e) => { log('db-worker error: ' + e.message); dbWorker = null; };
   }
@@ -270,6 +280,16 @@ function onDbMessage(ev) {
     log('database opened from OPFS ✔ counts: ' + JSON.stringify(m.counts));
     $('counts').textContent = 'مواضيع: ' + m.counts.topic_asset + ' — صور: ' + m.counts.graphic_asset;
     $('topicBtn').disabled = false; $('graphicBtn').disabled = false;
+  } else if (m.type === 'import-progress') {
+    $('importNums').textContent = 'importing: ' + MB(m.done) + ' / ' + MB(m.total) +
+      ' (' + (100 * m.done / m.total).toFixed(0) + '%)';
+  } else if (m.type === 'import-done') {
+    log('import complete: ' + MB(m.size) + ' — SHA-256: ' + m.sha256);
+    if (m.shaOk === true) log('SHA-256 MATCH ✔ — هذا هو ملف القاعدة الكاملة الأصلي');
+    else if (m.shaOk === false) log('تنبيه: البصمة لا تطابق بصمة القاعدة الكاملة المعروفة — تأكد أنك اخترت الملف الصحيح');
+    $('importNums').textContent = 'تم الاستيراد ✔ — الآن اضغط «فتح القاعدة من OPFS»';
+    const fullRadio = document.querySelector('input[name=target][value=full]');
+    if (fullRadio) { fullRadio.checked = true; fullRadio.dispatchEvent(new Event('change')); }
   } else if (m.type === 'topic-result') {
     if (!m.found) { log('topic ' + m.id + ': NOT FOUND'); return; }
     const obj = JSON.parse(m.jsonText);
@@ -295,6 +315,16 @@ function onDbMessage(ev) {
     log('ERROR: ' + m.message);
   }
 }
+$('importBtn').addEventListener('click', () => {
+  const f = $('filePick').files && $('filePick').files[0];
+  if (!f) { alert('اختر ملف data.sqlite أولاً'); return; }
+  log('Select DB import start: ' + f.name + ' (' + MB(f.size) + ')');
+  $('importNums').textContent = 'جارٍ الاستيراد...';
+  getDbWorker().postMessage({
+    type: 'import-file', file: f, asName: 'data.sqlite',
+    expectedSha256: '45c3bab8cce9d30ba3a988ca081aa4e5a31391853514bc5889d86d0322df2242',
+  });
+});
 $('openBtn').addEventListener('click', () => {
   const t = selectedTarget();
   log('opening ' + t.fileName + ' from OPFS...');

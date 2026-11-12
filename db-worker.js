@@ -6,7 +6,7 @@
 // needs no isolation — only sync access handles.
 
 import sqlite3InitModule from './index.mjs';
-import { decryptAsset, browserInflate } from './utd-crypto.mjs';
+import { decryptAsset, browserInflate, Sha256 } from './utd-crypto.mjs';
 
 const post = (msg) => self.postMessage(msg);
 let sqlite3 = null;
@@ -95,6 +95,42 @@ self.onmessage = async (ev) => {
         counts[t] = row ? row[0] : null;
       }
       post({ type: 'opened', counts });
+    } else if (msg.type === 'import-file') {
+      // Select DB path (like the Android app): the user picks an
+      // existing data.sqlite from the phone's storage; it is streamed
+      // straight into the SAH pool — no upload, no download, no
+      // intermediate OPFS copy — while its SHA-256 is computed from
+      // the same stream.
+      await init();
+      if (!poolUtil) poolUtil = await sqlite3.installOpfsSAHPoolVfs({});
+      if (db) { try { db.close(); } catch (e) { /* noop */ } db = null; }
+      const vfsPath = '/' + msg.asName;
+      if (poolUtil.getFileNames().includes(vfsPath)) poolUtil.unlink(vfsPath);
+      const file = msg.file;
+      const reader = file.stream().getReader();
+      const hasher = new Sha256();
+      let total = 0;
+      let lastPost = 0;
+      try {
+        await poolUtil.importDb(vfsPath, async () => {
+          const { done, value } = await reader.read();
+          if (done) return undefined;
+          hasher.update(value);
+          total += value.byteLength;
+          if (total - lastPost >= 16 * 1024 * 1024) {
+            lastPost = total;
+            post({ type: 'import-progress', done: total, total: file.size });
+          }
+          return value;
+        });
+      } finally {
+        try { reader.releaseLock(); } catch (e) { /* noop */ }
+      }
+      const digest = hasher.digestHex();
+      post({
+        type: 'import-done', size: total, sha256: digest,
+        shaOk: msg.expectedSha256 ? digest === msg.expectedSha256 : null,
+      });
     } else if (msg.type === 'topic') {
       if (!db) throw new Error('القاعدة غير مفتوحة');
       const t0 = performance.now();
