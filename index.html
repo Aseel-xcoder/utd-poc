@@ -255,7 +255,7 @@ $('resetBtn').addEventListener('click', () => {
 let dbWorker = null;
 function getDbWorker() {
   if (!dbWorker) {
-    dbWorker = new Worker('db-worker.js', { type: 'module' });
+    dbWorker = new Worker('db-worker.js?v=2', { type: 'module' });
     dbWorker.onmessage = onDbMessage;
     dbWorker.onerror = (e) => log('db-worker error: ' + e.message);
   }
