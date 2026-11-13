@@ -61,7 +61,7 @@
 <body>
 <header>
   <h1>نموذج اختبار: UpToDate بقاعدة محلية داخل المتصفح</h1>
-  <p>الهدف: إثبات أن القاعدة كاملة تعيش داخل الهاتف (OPFS) وتُقرأ محلياً بلا خادم — تحميل مرة واحدة، ثم عمل بلا إنترنت.</p>
+  <p>الهدف: إثبات أن القاعدة كاملة تعيش داخل الهاتف (OPFS) وتُقرأ محلياً بلا خادم — استيراد مرة واحدة، ثم عمل بلا إنترنت.</p>
 </header>
 <main>
 
@@ -75,24 +75,9 @@
 </section>
 
 <section>
-  <h2>١) تنزيل القاعدة إلى داخل الهاتف (OPFS)</h2>
-  <label class="radio"><input type="radio" name="target" value="poc" checked>
-    قاعدة الاختبار — 18 MB (150 موضوعاً حقيقياً مشفّراً من قاعدتك + 250 صورة)</label>
-  <label class="radio"><input type="radio" name="target" value="full">
-    القاعدة الكاملة — 2.42 GB (اختبار الحجم الحقيقي؛ يحتاج رابطاً مباشراً لملف data.sqlite)</label>
-  <div class="row" id="fullUrlRow" style="display:none">
-    <input type="text" id="fullUrl" placeholder="https://.../data.sqlite" dir="ltr">
-  </div>
-  <div class="row">
-    <button id="dlBtn">بدء / استئناف التنزيل</button>
-    <button class="secondary" id="resetBtn">مسح القاعدة من الهاتف</button>
-  </div>
-  <progress id="dlProg" value="0" max="100"></progress>
-  <div class="nums" id="dlNums">—</div>
-  <p class="small">اختبار الاستئناف: أثناء التنزيل أغلق الصفحة تماماً، ثم افتحها واضغط الزر نفسه — يجب أن يكمل من حيث توقف (إن كان خادم الاستضافة يدعم Range).</p>
-  <hr style="border:none;border-top:1px solid #e2e8ea;margin:14px 0">
-  <p style="margin:0 0 6px"><strong>أو — مثل تطبيق أندرويد — اختر ملف القاعدة من هاتفك (Select DB):</strong></p>
-  <p class="small" style="margin:0 0 8px">اختر ملف <span dir="ltr">data.sqlite</span> الكامل الموجود عندك (2.42 GB) وسيُستورد إلى داخل التطبيق مباشرة مع التحقق من بصمته — بلا رفع ولا تنزيل. يحتاج نحو 2.5 GB حرة إضافية أثناء الاستيراد، وبعد نجاحه يمكنك حذف النسخة الأصلية من التنزيلات.</p>
+  <h2>١) استيراد القاعدة إلى داخل الهاتف (Select DB)</h2>
+  <p style="margin:0 0 6px"><strong>اختر ملف القاعدة من هاتفك (Select DB):</strong></p>
+  <p class="small" style="margin:0 0 8px">اختر ملف <span dir="ltr">data.sqlite</span> الكامل الموجود في هاتفك (2.42 GB) وسيُستورد إلى داخل التطبيق مباشرة مع التحقق من بصمته — بلا رفع ولا تنزيل. يحتاج نحو 2.5 GB حرة إضافية أثناء الاستيراد، وبعد نجاحه يمكنك حذف النسخة الأصلية من ملفات الهاتف.</p>
   <div class="row">
     <input type="file" id="filePick" style="flex:1;min-width:200px">
   </div>
@@ -142,26 +127,6 @@ function log(msg) {
 const GB = (n) => (n / 1073741824).toFixed(2) + ' GB';
 const MB = (n) => (n / 1048576).toFixed(1) + ' MB';
 
-const TARGETS = {
-  poc:  { fileName: 'poc_data.sqlite', size: 18264064,
-          sha256: 'f6f71d81a05253e955d07ecf1d6842fb1a1b69c76909d87e939fa8d6b8d05a03',
-          url: 'poc_data.sqlite' },
-  full: { fileName: 'data.sqlite', size: 2419353600,
-          sha256: '45c3bab8cce9d30ba3a988ca081aa4e5a31391853514bc5889d86d0322df2242',
-          url: '' },
-};
-function selectedTarget() {
-  const which = document.querySelector('input[name=target]:checked').value;
-  const t = Object.assign({}, TARGETS[which]);
-  if (which === 'full') t.url = $('fullUrl').value.trim();
-  return t;
-}
-document.querySelectorAll('input[name=target]').forEach((r) =>
-  r.addEventListener('change', () => {
-    $('fullUrlRow').style.display =
-      document.querySelector('input[name=target]:checked').value === 'full' ? '' : 'none';
-  }));
-
 // ---------------- environment panel ----------------
 (async function env() {
   const rows = [];
@@ -192,69 +157,13 @@ $('persistBtn').addEventListener('click', async () => {
   } catch (e) { log('persist error: ' + e.message); }
 });
 
-// ---------------- download worker ----------------
-let dlWorker = null;
-function getDlWorker() {
-  if (!dlWorker) {
-    dlWorker = new Worker('dl-worker.js', { type: 'module' });
-    dlWorker.onmessage = onDlMessage;
-    dlWorker.onerror = (e) => { log('dl-worker error: ' + e.message); dlWorker = null; };
-  }
-  return dlWorker;
-}
-let dlStartTime = 0, dlStartBytes = 0;
-function onDlMessage(ev) {
-  const m = ev.data;
-  if (m.type === 'progress') {
-    const pct = (100 * m.done / m.total).toFixed(1);
-    $('dlProg').value = pct;
-    let speed = '';
-    if (dlStartTime && m.done > dlStartBytes) {
-      const secs = (Date.now() - dlStartTime) / 1000;
-      if (secs > 0) speed = ' @ ' + MB((m.done - dlStartBytes) / secs) + '/s';
-    }
-    $('dlNums').textContent = MB(m.done) + ' / ' + MB(m.total) + ' (' + pct + '%)' + speed +
-      (m.resumedFrom ? ' — استؤنف من ' + MB(m.resumedFrom) : '');
-  } else if (m.type === 'note') {
-    log(m.message);
-  } else if (m.type === 'verifying') {
-    log('download complete — verifying SHA-256 (reading back from OPFS)...');
-    $('dlNums').textContent = 'جارٍ التحقق من البصمة...';
-  } else if (m.type === 'verify-progress') {
-    $('dlNums').textContent = 'verifying: ' + MB(m.done) + ' / ' + MB(m.total);
-  } else if (m.type === 'done') {
-    log('SHA-256: ' + m.digest);
-    log(m.shaOk ? 'SHA-256 MATCH ✔ — الملف سليم داخل OPFS' : 'SHA-256 MISMATCH ✘ — الملف تالف');
-    $('dlNums').textContent = m.shaOk ? 'اكتمل وسليم ✔' : 'اكتمل لكن البصمة لا تطابق ✘';
-    $('dlProg').value = 100;
-    $('dlBtn').disabled = false;
-  } else if (m.type === 'partial-size') {
-    if (m.size > 0) log('partial file in OPFS: ' + MB(m.size) + ' (قابل للاستئناف)');
-  } else if (m.type === 'reset-done') {
-    log('database file removed from OPFS');
-    $('dlProg').value = 0; $('dlNums').textContent = '—';
-  } else if (m.type === 'error') {
-    log('ERROR: ' + m.message);
-    $('dlBtn').disabled = false;
-  }
-}
+// ---------------- automatic re-open ----------------
 window.addEventListener('load', () => {
-  try {
-    getDlWorker().postMessage({ type: 'partial-size', fileName: TARGETS.poc.fileName });
-    getDlWorker().postMessage({ type: 'partial-size', fileName: TARGETS.full.fileName });
-  } catch (e) { /* worker may fail on very old browsers; env panel shows why */ }
-  // Re-open the last active database automatically, so after a reload
-  // or an app restart the user can search at once — and so the page
-  // never silently falls back to the small test database.
+  // Re-open the imported database automatically, so after a reload or
+  // an app restart the user can search at once.
   try {
     const saved = localStorage.getItem('utd-active-db');
-    if (saved) {
-      const radio = document.querySelector(
-        'input[name=target][value="' + (saved === 'data.sqlite' ? 'full' : 'poc') + '"]');
-      if (radio && !radio.checked) {
-        radio.checked = true;
-        radio.dispatchEvent(new Event('change'));
-      }
+    if (saved === 'data.sqlite') {
       lastOpenFileName = saved;
       log('auto-opening the saved database: ' + saved);
       setTimeout(() => {
@@ -262,23 +171,6 @@ window.addEventListener('load', () => {
       }, 600);
     }
   } catch (e) { /* storage unavailable */ }
-});
-$('dlBtn').addEventListener('click', () => {
-  const t = selectedTarget();
-  if (!t.url) { alert('ضع رابط ملف data.sqlite أولاً'); return; }
-  $('dlBtn').disabled = true;
-  dlStartTime = Date.now(); dlStartBytes = 0;
-  log('download start: ' + t.fileName + ' (' + MB(t.size) + ') from ' + t.url);
-  getDlWorker().postMessage({
-    type: 'start', url: t.url, fileName: t.fileName,
-    expectedSize: t.size, expectedSha256: t.sha256,
-  });
-});
-$('resetBtn').addEventListener('click', () => {
-  const t = selectedTarget();
-  getDlWorker().postMessage({ type: 'reset', fileName: t.fileName });
-  $('counts').textContent = '';
-  $('topicBtn').disabled = true; $('graphicBtn').disabled = true;
 });
 
 // ---------------- database worker ----------------
@@ -312,8 +204,6 @@ function onDbMessage(ev) {
     else if (m.shaOk === false) log('تنبيه: البصمة لا تطابق بصمة القاعدة الكاملة المعروفة — تأكد أنك اخترت الملف الصحيح');
     $('importNums').textContent = 'تم الاستيراد ✔ — الآن اضغط «فتح القاعدة من OPFS»';
     try { localStorage.setItem('utd-active-db', 'data.sqlite'); } catch (e) { /* noop */ }
-    const fullRadio = document.querySelector('input[name=target][value=full]');
-    if (fullRadio) { fullRadio.checked = true; fullRadio.dispatchEvent(new Event('change')); }
   } else if (m.type === 'topic-result') {
     if (!m.found) { log('topic ' + m.id + ': NOT FOUND'); return; }
     const obj = JSON.parse(m.jsonText);
@@ -350,10 +240,9 @@ $('importBtn').addEventListener('click', () => {
   });
 });
 $('openBtn').addEventListener('click', () => {
-  const t = selectedTarget();
-  lastOpenFileName = t.fileName;
-  log('opening ' + t.fileName + ' from OPFS...');
-  getDbWorker().postMessage({ type: 'open', fileName: t.fileName });
+  lastOpenFileName = 'data.sqlite';
+  log('opening data.sqlite from OPFS...');
+  getDbWorker().postMessage({ type: 'open', fileName: 'data.sqlite' });
 });
 $('topicBtn').addEventListener('click', () => {
   const id = $('topicId').value || '1';
