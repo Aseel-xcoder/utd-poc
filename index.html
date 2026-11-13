@@ -243,6 +243,25 @@ window.addEventListener('load', () => {
     getDlWorker().postMessage({ type: 'partial-size', fileName: TARGETS.poc.fileName });
     getDlWorker().postMessage({ type: 'partial-size', fileName: TARGETS.full.fileName });
   } catch (e) { /* worker may fail on very old browsers; env panel shows why */ }
+  // Re-open the last active database automatically, so after a reload
+  // or an app restart the user can search at once — and so the page
+  // never silently falls back to the small test database.
+  try {
+    const saved = localStorage.getItem('utd-active-db');
+    if (saved) {
+      const radio = document.querySelector(
+        'input[name=target][value="' + (saved === 'data.sqlite' ? 'full' : 'poc') + '"]');
+      if (radio && !radio.checked) {
+        radio.checked = true;
+        radio.dispatchEvent(new Event('change'));
+      }
+      lastOpenFileName = saved;
+      log('auto-opening the saved database: ' + saved);
+      setTimeout(() => {
+        getDbWorker().postMessage({ type: 'open', fileName: saved });
+      }, 600);
+    }
+  } catch (e) { /* storage unavailable */ }
 });
 $('dlBtn').addEventListener('click', () => {
   const t = selectedTarget();
@@ -264,9 +283,10 @@ $('resetBtn').addEventListener('click', () => {
 
 // ---------------- database worker ----------------
 let dbWorker = null;
+let lastOpenFileName = null;
 function getDbWorker() {
   if (!dbWorker) {
-    dbWorker = new Worker('db-worker.js?v=3', { type: 'module' });
+    dbWorker = new Worker('db-worker.js?v=4', { type: 'module' });
     dbWorker.onmessage = onDbMessage;
     dbWorker.onerror = (e) => { log('db-worker error: ' + e.message); dbWorker = null; };
   }
@@ -280,6 +300,9 @@ function onDbMessage(ev) {
     log('database opened from OPFS ✔ counts: ' + JSON.stringify(m.counts));
     $('counts').textContent = 'مواضيع: ' + m.counts.topic_asset + ' — صور: ' + m.counts.graphic_asset;
     $('topicBtn').disabled = false; $('graphicBtn').disabled = false;
+    if (lastOpenFileName) {
+      try { localStorage.setItem('utd-active-db', lastOpenFileName); } catch (e) { /* noop */ }
+    }
   } else if (m.type === 'import-progress') {
     $('importNums').textContent = 'importing: ' + MB(m.done) + ' / ' + MB(m.total) +
       ' (' + (100 * m.done / m.total).toFixed(0) + '%)';
@@ -288,6 +311,7 @@ function onDbMessage(ev) {
     if (m.shaOk === true) log('SHA-256 MATCH ✔ — هذا هو ملف القاعدة الكاملة الأصلي');
     else if (m.shaOk === false) log('تنبيه: البصمة لا تطابق بصمة القاعدة الكاملة المعروفة — تأكد أنك اخترت الملف الصحيح');
     $('importNums').textContent = 'تم الاستيراد ✔ — الآن اضغط «فتح القاعدة من OPFS»';
+    try { localStorage.setItem('utd-active-db', 'data.sqlite'); } catch (e) { /* noop */ }
     const fullRadio = document.querySelector('input[name=target][value=full]');
     if (fullRadio) { fullRadio.checked = true; fullRadio.dispatchEvent(new Event('change')); }
   } else if (m.type === 'topic-result') {
@@ -327,6 +351,7 @@ $('importBtn').addEventListener('click', () => {
 });
 $('openBtn').addEventListener('click', () => {
   const t = selectedTarget();
+  lastOpenFileName = t.fileName;
   log('opening ' + t.fileName + ' from OPFS...');
   getDbWorker().postMessage({ type: 'open', fileName: t.fileName });
 });

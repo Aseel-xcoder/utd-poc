@@ -30,7 +30,7 @@ async function importIntoPool(fileName) {
   try {
     fh = await root.getFileHandle(fileName);
   } catch (e) {
-    throw new Error('القاعدة غير موجودة في OPFS — نزّلها أولاً من القسم ١');
+    throw new Error('القاعدة غير موجودة في التخزين — نزّلها أو استوردها بـ Select DB من القسم ١ أولاً');
   }
   const sah = await fh.createSyncAccessHandle();
   const size = sah.getSize();
