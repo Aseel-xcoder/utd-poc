@@ -396,7 +396,12 @@ if ('serviceWorker' in navigator) {
     // try/catch so it can never break the app. ----
     try {
       var styleEl = document.createElement('style');
-      styleEl.textContent = '.copyright,.copyrightFull{display:none!important}';
+      styleEl.textContent =
+        '.copyright,.copyrightFull{display:none!important}' +
+        '.home-copyright-disclaimer{display:none!important}' +
+        '#utd-top-Controls .utd-turbo{background:rgba(255,255,255,.16)!important;border-color:rgba(255,255,255,.35)!important}' +
+        '#utd-hero-slot .utd-top-pill{padding:8px 16px;font-size:13px}' +
+        '#wkUtdWelcomeName{background:transparent!important;box-shadow:none!important}';
       (document.head || document.body).appendChild(styleEl);
     } catch (e) { /* cosmetic only */ }
 
@@ -441,20 +446,9 @@ if ('serviceWorker' in navigator) {
             if (nav && wrap.parentNode !== nav) nav.appendChild(wrap);
           }
         }
-        var hsv = document.querySelector('.home-search-view');
-        if (hsv && !document.getElementById('utd-ai-hero')) {
-          var ai = document.createElement('div');
-          ai.id = 'utd-ai-hero';
-          ai.style.cssText = 'text-align:center;padding:28px 0 32px';
-          ai.innerHTML =
-            '<button type="button" aria-label="AI Assistant" style="width:86px;height:86px;border:none;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#2563eb 55%,#06b6d4);box-shadow:0 10px 28px rgba(80,70,229,.45),0 0 0 8px rgba(99,102,241,.12);cursor:pointer;display:inline-flex;align-items:center;justify-content:center">' +
-            '<svg width="40" height="40" viewBox="0 0 24 24" fill="#fff"><path d="M12 3l1.9 5.7 5.7 1.9-5.7 1.9L12 18.2l-1.9-5.7L4.4 10.6l5.7-1.9z"/><path d="M18.5 15.5l.8 2.4 2.4.8-2.4.8-.8 2.4-.8-2.4-2.4-.8 2.4-.8z" opacity=".85"/></svg>' +
-            '</button><div style="margin-top:10px;font-size:14px;font-weight:600;color:#5b6b7a;font-family:system-ui,sans-serif">المساعد الذكي</div>';
-          ai.querySelector('button').addEventListener('click', function () {
-            if (typeof window.openAiAssistant === 'function') window.openAiAssistant();
-          });
-          hsv.appendChild(ai);
-        }
+        // No AI button is injected: the app already ships its own
+        // prominent "Ask Expert AI" button in the home center, and a
+        // second one only duplicated it.
       } catch (e) { /* chrome is cosmetic; never break the app */ }
     }
     ensureChrome();
