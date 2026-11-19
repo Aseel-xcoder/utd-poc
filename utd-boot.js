@@ -297,7 +297,7 @@ if ('serviceWorker' in navigator) {
     });
   }
 
-  // ---------------- first-run overlay + floating button ----------------
+  // ---------------- first-run overlay + layout-B chrome ----------------
   function buildUi() {
     if (!document.body) return;
 
@@ -377,14 +377,7 @@ if ('serviceWorker' in navigator) {
     });
     pickBtn.addEventListener('click', function () { input.click(); });
 
-    var fab = document.createElement('button');
-    fab.id = 'utd-selectdb-fab';
-    fab.textContent = '📂 Select DB';
-    fab.title = 'استيراد قاعدة البيانات من ملف في الهاتف';
-    fab.style.cssText = 'position:fixed;left:10px;bottom:88px;z-index:2147482000;background:#005e6b;' +
-      'color:#fff;border:0;border-radius:20px;padding:9px 14px;font-size:13.5px;cursor:pointer;' +
-      'box-shadow:0 2px 8px rgba(0,0,0,.3);opacity:.94;font-family:system-ui,sans-serif';
-    fab.addEventListener('click', function () {
+    function openImportOverlay() {
       overlay.style.display = 'flex';
       titleEl.textContent = state.phase === 'ready'
         ? 'استيراد قاعدة بيانات'
@@ -392,8 +385,73 @@ if ('serviceWorker' in navigator) {
       statusEl.textContent = state.phase === 'ready'
         ? 'القاعدة الحالية تعمل. استيراد ملف جديد يستبدلها.'
         : '';
-    });
-    document.body.appendChild(fab);
+    }
+    window.UTDOpenImport = openImportOverlay;
+
+    // ---- layout B chrome: a Select DB pill joins the app's own
+    // controls wrap (Boost Cache / Dark); the wrap is shuttled into a
+    // slot under the home search bar and returns to the top nav on
+    // other views; a centered AI button closes the home view; the
+    // vendor copyright footers are hidden. Cosmetic only — wrapped in
+    // try/catch so it can never break the app. ----
+    try {
+      var styleEl = document.createElement('style');
+      styleEl.textContent = '.copyright,.copyrightFull{display:none!important}';
+      (document.head || document.body).appendChild(styleEl);
+    } catch (e) { /* cosmetic only */ }
+
+    var heroSlot = null;
+    function ensureChrome() {
+      try {
+        var wrap = document.getElementById('utd-top-Controls');
+        if (wrap && !document.getElementById('utd-selectdb-pill')) {
+          var pill = document.createElement('button');
+          pill.id = 'utd-selectdb-pill';
+          pill.className = 'utd-top-pill';
+          pill.type = 'button';
+          pill.textContent = '📂 Select DB';
+          pill.addEventListener('click', openImportOverlay);
+          wrap.insertBefore(pill, wrap.firstChild);
+        }
+        var searchBar = document.querySelector('.search-bar-container');
+        if (searchBar && searchBar.parentNode &&
+            (!heroSlot || !heroSlot.isConnected)) {
+          heroSlot = document.getElementById('utd-hero-slot');
+          if (!heroSlot) {
+            heroSlot = document.createElement('div');
+            heroSlot.id = 'utd-hero-slot';
+            heroSlot.style.cssText = 'display:flex;justify-content:center;padding:10px 6px 2px';
+            searchBar.parentNode.insertBefore(heroSlot, searchBar.nextSibling);
+          }
+        }
+        if (wrap) {
+          var home = document.getElementById('search__container');
+          var homeVisible = !!(home && home.offsetParent !== null);
+          if (homeVisible && heroSlot && heroSlot.isConnected) {
+            if (wrap.parentNode !== heroSlot) heroSlot.appendChild(wrap);
+          } else {
+            var nav = document.getElementById('utdNavRoot');
+            if (nav && wrap.parentNode !== nav) nav.appendChild(wrap);
+          }
+        }
+        var hsv = document.querySelector('.home-search-view');
+        if (hsv && !document.getElementById('utd-ai-hero')) {
+          var ai = document.createElement('div');
+          ai.id = 'utd-ai-hero';
+          ai.style.cssText = 'text-align:center;padding:28px 0 32px';
+          ai.innerHTML =
+            '<button type="button" aria-label="AI Assistant" style="width:86px;height:86px;border:none;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#2563eb 55%,#06b6d4);box-shadow:0 10px 28px rgba(80,70,229,.45),0 0 0 8px rgba(99,102,241,.12);cursor:pointer;display:inline-flex;align-items:center;justify-content:center">' +
+            '<svg width="40" height="40" viewBox="0 0 24 24" fill="#fff"><path d="M12 3l1.9 5.7 5.7 1.9-5.7 1.9L12 18.2l-1.9-5.7L4.4 10.6l5.7-1.9z"/><path d="M18.5 15.5l.8 2.4 2.4.8-2.4.8-.8 2.4-.8-2.4-2.4-.8 2.4-.8z" opacity=".85"/></svg>' +
+            '</button><div style="margin-top:10px;font-size:14px;font-weight:600;color:#5b6b7a;font-family:system-ui,sans-serif">المساعد الذكي</div>';
+          ai.querySelector('button').addEventListener('click', function () {
+            if (typeof window.openAiAssistant === 'function') window.openAiAssistant();
+          });
+          hsv.appendChild(ai);
+        }
+      } catch (e) { /* chrome is cosmetic; never break the app */ }
+    }
+    ensureChrome();
+    setInterval(ensureChrome, 900);
 
     overlay.addEventListener('click', function (ev) {
       if (ev.target === overlay && state.phase === 'ready') overlay.style.display = 'none';
