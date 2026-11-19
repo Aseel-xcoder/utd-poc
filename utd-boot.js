@@ -106,9 +106,12 @@ if ('serviceWorker' in navigator) {
   }
   function bootOpenDb(attempt) {
     return openDb().catch(function () {
+      // If the user has already moved on (an import is running, or the
+      // database opened), the boot path must not touch the worker.
+      if (state.phase !== 'booting') return null;
       resetWorker();
       if (attempt >= 2) {
-        if (state.phase === 'booting') state.phase = 'missing';
+        state.phase = 'missing';
         return null;
       }
       return new Promise(function (res) { setTimeout(res, 1200); })
@@ -271,19 +274,26 @@ if ('serviceWorker' in navigator) {
   // ---------------- import (Select DB) ----------------
   function doImport(file, ui) {
     state.phase = 'importing';
-    resetWorker(); // the import must be the fresh worker's first storage op
-    importProgressCb = function (m) { ui.progress(m.done, m.total); };
-    return rpc(['import-done', 'error'], {
-      type: 'import-file', file: file, asName: DB_NAME, expectedSha256: FULL_SHA256,
-    }).then(function (m) {
-      importProgressCb = null;
-      if (m.type === 'error') throw new Error(m.message);
-      return m; // { size, sha256, shaOk }
-    }).catch(function (e) {
-      importProgressCb = null;
-      state.phase = 'missing';
-      resetWorker(); // leave a clean worker for the next attempt
-      throw e;
+    // Wait for the boot open (and its one retry) to fully settle before
+    // touching the worker. Resetting the worker for the import while a
+    // boot call is still in flight lets the boot path's own reset land
+    // afterwards and kill the import mid-stream — seen on a real phone
+    // as a failed import: 'database worker reset'.
+    return state.bootOpen.then(function () {
+      resetWorker(); // the import must be the fresh worker's first storage op
+      importProgressCb = function (m) { ui.progress(m.done, m.total); };
+      return rpc(['import-done', 'error'], {
+        type: 'import-file', file: file, asName: DB_NAME, expectedSha256: FULL_SHA256,
+      }).then(function (m) {
+        importProgressCb = null;
+        if (m.type === 'error') throw new Error(m.message);
+        return m; // { size, sha256, shaOk }
+      }).catch(function (e) {
+        importProgressCb = null;
+        state.phase = 'missing';
+        resetWorker(); // leave a clean worker for the next attempt
+        throw e;
+      });
     });
   }
 
