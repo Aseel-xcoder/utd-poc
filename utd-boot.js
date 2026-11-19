@@ -401,7 +401,9 @@ if ('serviceWorker' in navigator) {
         '.home-copyright-disclaimer{display:none!important}' +
         '#utd-top-Controls .utd-turbo{background:rgba(255,255,255,.16)!important;border-color:rgba(255,255,255,.35)!important}' +
         '#utd-hero-slot .utd-top-pill{padding:8px 16px;font-size:13px}' +
-        '#wkUtdWelcomeName{background:transparent!important;box-shadow:none!important}';
+        '#wkUtdWelcomeName{background:transparent!important;box-shadow:none!important}' +
+        '#wkUtdWelcomeName a{background:transparent!important;background-image:none!important;box-shadow:none!important;border:none!important;color:#fff!important;padding:0!important}' +
+        '#utdMobileCme{background:transparent!important}';
       (document.head || document.body).appendChild(styleEl);
     } catch (e) { /* cosmetic only */ }
 
