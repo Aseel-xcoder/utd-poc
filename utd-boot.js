@@ -426,7 +426,14 @@ if ('serviceWorker' in navigator) {
         }
         if (wrap) {
           var home = document.getElementById('search__container');
-          var homeVisible = !!(home && home.offsetParent !== null);
+          // offsetParent proved unreliable here (null while visibly on
+          // screen in the live test); client rects + computed display
+          // are the trustworthy visibility signal.
+          var homeVisible = false;
+          if (home && home.getClientRects().length > 0) {
+            var cs = window.getComputedStyle ? getComputedStyle(home) : null;
+            homeVisible = !cs || cs.display !== 'none';
+          }
           if (homeVisible && heroSlot && heroSlot.isConnected) {
             if (wrap.parentNode !== heroSlot) heroSlot.appendChild(wrap);
           } else {
@@ -452,6 +459,19 @@ if ('serviceWorker' in navigator) {
     }
     ensureChrome();
     setInterval(ensureChrome, 900);
+    // The app re-renders parts of its DOM after load; react to those
+    // mutations immediately instead of waiting for the next tick.
+    if (window.MutationObserver && document.body) {
+      var moTimer = null;
+      var mo = new MutationObserver(function () {
+        if (moTimer) return;
+        moTimer = setTimeout(function () { moTimer = null; ensureChrome(); }, 250);
+      });
+      mo.observe(document.body, {
+        childList: true, subtree: true,
+        attributes: true, attributeFilter: ['style', 'class'],
+      });
+    }
 
     overlay.addEventListener('click', function (ev) {
       if (ev.target === overlay && state.phase === 'ready') overlay.style.display = 'none';
