@@ -403,7 +403,13 @@ if ('serviceWorker' in navigator) {
         '#utd-hero-slot .utd-top-pill{padding:8px 16px;font-size:13px}' +
         '#wkUtdWelcomeName{background:transparent!important;box-shadow:none!important}' +
         '#wkUtdWelcomeName a{background:transparent!important;background-image:none!important;box-shadow:none!important;border:none!important;color:#fff!important;padding:0!important}' +
-        '#utdMobileCme{background:transparent!important}';
+        '#utdMobileCme{background:transparent!important}' +
+        '#utd-hero-slot #utd-top-Controls{flex-wrap:nowrap}' +
+        '@media (max-width:480px){#utd-hero-slot .utd-top-pill{padding:7px 10px;font-size:12px}}' +
+        'li#homeSearchPanel_history > a,li#homeSearchPanel_history > div > a,li#homeSearchPanel_mostViewed > a,li#homeSearchPanel_mostViewed > div > a,li#homeSearchPanel_bookmarks > a,li#homeSearchPanel_bookmarks > div > a{background:rgba(255,255,255,.14)!important;color:#fff!important;border:1px solid rgba(255,255,255,.35)!important;box-shadow:none!important}' +
+        'li#homeSearchPanel_history *,li#homeSearchPanel_mostViewed *,li#homeSearchPanel_bookmarks *{color:#fff!important}' +
+        'body.utd-dark li#homeSearchPanel_history > a,body.utd-dark li#homeSearchPanel_history > div > a,body.utd-dark li#homeSearchPanel_mostViewed > a,body.utd-dark li#homeSearchPanel_mostViewed > div > a,body.utd-dark li#homeSearchPanel_bookmarks > a,body.utd-dark li#homeSearchPanel_bookmarks > div > a{background:rgba(255,255,255,.14)!important;color:#fff!important;border:1px solid rgba(255,255,255,.35)!important;box-shadow:none!important}' +
+        'body.utd-dark li#homeSearchPanel_history *,body.utd-dark li#homeSearchPanel_mostViewed *,body.utd-dark li#homeSearchPanel_bookmarks *{color:#fff!important}';
       (document.head || document.body).appendChild(styleEl);
     } catch (e) { /* cosmetic only */ }
 
@@ -420,15 +426,21 @@ if ('serviceWorker' in navigator) {
           pill.addEventListener('click', openImportOverlay);
           wrap.insertBefore(pill, wrap.firstChild);
         }
-        var searchBar = document.querySelector('.search-bar-container');
-        if (searchBar && searchBar.parentNode &&
-            (!heroSlot || !heroSlot.isConnected)) {
-          heroSlot = document.getElementById('utd-hero-slot');
-          if (!heroSlot) {
-            heroSlot = document.createElement('div');
-            heroSlot.id = 'utd-hero-slot';
-            heroSlot.style.cssText = 'display:flex;justify-content:center;padding:10px 6px 2px';
-            searchBar.parentNode.insertBefore(heroSlot, searchBar.nextSibling);
+        var logo = document.querySelector('.home-utd-logo');
+        if (logo && logo.parentNode) {
+          if (!heroSlot || !heroSlot.isConnected) {
+            heroSlot = document.getElementById('utd-hero-slot');
+            if (!heroSlot) {
+              heroSlot = document.createElement('div');
+              heroSlot.id = 'utd-hero-slot';
+              heroSlot.style.cssText = 'display:flex;justify-content:center;padding:10px 6px 2px';
+            }
+          }
+          // The slot lives directly above the logo — between the top
+          // bar (Done by Dr Aseel) and the UpToDate logo.
+          if (heroSlot.parentNode !== logo.parentNode ||
+              heroSlot.nextElementSibling !== logo) {
+            logo.parentNode.insertBefore(heroSlot, logo);
           }
         }
         if (wrap) {
