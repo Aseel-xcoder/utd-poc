@@ -33,7 +33,7 @@ if ('serviceWorker' in navigator) {
 
   function getWorker() {
     if (!worker) {
-      worker = new Worker('db-worker.js?v=5', { type: 'module' });
+      worker = new Worker('db-worker.js?v=6', { type: 'module' });
       worker.onmessage = function (ev) {
         var m = ev.data || {};
         if (m.type === 'import-progress') {
@@ -71,6 +71,21 @@ if ('serviceWorker' in navigator) {
     return result;
   }
 
+  // Terminate the worker so the next call starts from a completely
+  // fresh storage state. A failed open can leave a half-initialised
+  // SAH pool behind in the worker, and an import must be the fresh
+  // worker's first storage operation (the sequence the POC proved on
+  // real devices); reusing a worker after either can collide with
+  // sync access handles the pool already holds.
+  function resetWorker() {
+    if (worker) {
+      try { worker.terminate(); } catch (e) { /* noop */ }
+      worker = null;
+    }
+    var ws = waiters; waiters = [];
+    ws.forEach(function (w) { w.reject(new Error('database worker reset')); });
+  }
+
   // ---------------- state ----------------
   var state = {
     phase: 'booting', // booting -> ready | missing | importing
@@ -89,10 +104,18 @@ if ('serviceWorker' in navigator) {
       return m.counts;
     });
   }
-  state.bootOpen = openDb().catch(function () {
-    if (state.phase === 'booting') state.phase = 'missing';
-    return null;
-  });
+  function bootOpenDb(attempt) {
+    return openDb().catch(function () {
+      resetWorker();
+      if (attempt >= 2) {
+        if (state.phase === 'booting') state.phase = 'missing';
+        return null;
+      }
+      return new Promise(function (res) { setTimeout(res, 1200); })
+        .then(function () { return bootOpenDb(attempt + 1); });
+    });
+  }
+  state.bootOpen = bootOpenDb(1);
 
   function loadTopics() {
     if (!state.topicsPromise) {
@@ -248,6 +271,7 @@ if ('serviceWorker' in navigator) {
   // ---------------- import (Select DB) ----------------
   function doImport(file, ui) {
     state.phase = 'importing';
+    resetWorker(); // the import must be the fresh worker's first storage op
     importProgressCb = function (m) { ui.progress(m.done, m.total); };
     return rpc(['import-done', 'error'], {
       type: 'import-file', file: file, asName: DB_NAME, expectedSha256: FULL_SHA256,
@@ -258,6 +282,7 @@ if ('serviceWorker' in navigator) {
     }).catch(function (e) {
       importProgressCb = null;
       state.phase = 'missing';
+      resetWorker(); // leave a clean worker for the next attempt
       throw e;
     });
   }
@@ -327,7 +352,10 @@ if ('serviceWorker' in navigator) {
       }).catch(function (e) {
         pickBtn.disabled = false;
         progEl.style.display = 'none';
-        statusEl.textContent = 'فشل الاستيراد: ' + (e && e.message || e);
+        var msg = String(e && e.message || e);
+        statusEl.textContent = msg.indexOf('createSyncAccessHandle') !== -1
+          ? 'فشل الاستيراد: القاعدة مفتوحة في تبويب آخر. أغلق كل تبويبات التطبيق الأخرى ثم أعد المحاولة من هذا التبويب.'
+          : 'فشل الاستيراد: ' + msg;
       });
     }
 
@@ -342,7 +370,7 @@ if ('serviceWorker' in navigator) {
     fab.id = 'utd-selectdb-fab';
     fab.textContent = '📂 Select DB';
     fab.title = 'استيراد قاعدة البيانات من ملف في الهاتف';
-    fab.style.cssText = 'position:fixed;left:10px;bottom:10px;z-index:2147482000;background:#005e6b;' +
+    fab.style.cssText = 'position:fixed;left:10px;bottom:88px;z-index:2147482000;background:#005e6b;' +
       'color:#fff;border:0;border-radius:20px;padding:9px 14px;font-size:13.5px;cursor:pointer;' +
       'box-shadow:0 2px 8px rgba(0,0,0,.3);opacity:.94;font-family:system-ui,sans-serif';
     fab.addEventListener('click', function () {

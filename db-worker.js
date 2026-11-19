@@ -50,13 +50,11 @@ async function importIntoPool(fileName) {
 }
 
 async function openDatabase(fileName) {
-  // Path 1: classic OPFS VFS (requires crossOriginIsolated).
-  if ('opfs' in sqlite3) {
-    try {
-      return { handle: new sqlite3.oo1.OpfsDb('/' + fileName, 'r'), vfs: 'opfs' };
-    } catch (e) { /* fall through to the pool */ }
-  }
-  // Path 2: SAH Pool VFS (no isolation required).
+  // Always the SAH Pool VFS. The classic OPFS VFS needs cross-origin
+  // isolation, whose availability on this host is unstable — flipping
+  // between the two VFSs made the same database appear and disappear
+  // between loads. The pool path is the one every real-device test
+  // (Android + iPad) actually ran on.
   if (!poolUtil) poolUtil = await sqlite3.installOpfsSAHPoolVfs({});
   const vfsPath = '/' + fileName;
   if (!poolUtil.getFileNames().includes(vfsPath)) {
