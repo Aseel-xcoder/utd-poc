@@ -304,7 +304,7 @@ if ('serviceWorker' in navigator) {
     overlay.innerHTML =
       '<div style="background:#fff;border-radius:14px;box-shadow:0 4px 24px rgba(0,0,0,.15);' +
       'max-width:520px;width:100%;padding:26px 22px;text-align:center;font-family:system-ui,sans-serif;color:#123">' +
-      '<div style="font-size:19px;font-weight:700;color:#005e6b;margin-bottom:10px">قاعدة البيانات غير موجودة بعد</div>' +
+      '<div id="utd-overlay-title" style="font-size:19px;font-weight:700;color:#005e6b;margin-bottom:10px">قاعدة البيانات غير موجودة بعد</div>' +
       '<p style="font-size:14.5px;line-height:1.9;margin:0 0 8px">هذا التطبيق يعمل بالكامل من داخل هاتفك بلا إنترنت، ' +
       'لكنه يحتاج قاعدة البيانات <b dir="ltr">data.sqlite</b> مرة واحدة فقط.</p>' +
       '<p style="font-size:13.5px;line-height:1.9;color:#456;margin:0 0 16px">اختر ملف القاعدة الموجود في هاتفك (2.42 GB) ' +
@@ -318,6 +318,7 @@ if ('serviceWorker' in navigator) {
       '</div>';
     document.body.appendChild(overlay);
 
+    var titleEl = overlay.querySelector('#utd-overlay-title');
     var statusEl = overlay.querySelector('#utd-import-status');
     var progEl = overlay.querySelector('#utd-import-prog');
     var warnEl = overlay.querySelector('#utd-import-warn');
@@ -375,6 +376,9 @@ if ('serviceWorker' in navigator) {
       'box-shadow:0 2px 8px rgba(0,0,0,.3);opacity:.94;font-family:system-ui,sans-serif';
     fab.addEventListener('click', function () {
       overlay.style.display = 'flex';
+      titleEl.textContent = state.phase === 'ready'
+        ? 'استيراد قاعدة بيانات'
+        : 'قاعدة البيانات غير موجودة بعد';
       statusEl.textContent = state.phase === 'ready'
         ? 'القاعدة الحالية تعمل. استيراد ملف جديد يستبدلها.'
         : '';
