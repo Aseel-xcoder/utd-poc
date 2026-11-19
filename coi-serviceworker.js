@@ -1,52 +1,43 @@
-// coi-serviceworker.js — two jobs:
-// 1) Offline shell: precaches the app files (page, workers, wasm) on
-//    the first online visit, then serves them from Cache Storage, so
-//    the app opens and runs with no network at all. The database file
-//    itself (.sqlite) is never intercepted — the download worker
-//    fetches it directly (Range requests untouched) into OPFS.
-// 2) Adds cross-origin isolation headers (COOP/COEP) that static hosts
-//    like GitHub Pages cannot set. With real host headers (see the
-//    bundled `_headers` for Cloudflare Pages) job 2 is a no-op bonus;
-//    the SAH Pool database path does not need isolation anyway.
-
-const CACHE = 'utd-shell-v3';
+/* Product service worker for the offline UpToDate web app.
+ *
+ * - Precaches the app shell so the app opens with no network.
+ * - Network-first for everything else (fresh code on every deploy),
+ *   with a cache fallback when the network is down.
+ * - Synthesizes COOP/COEP/CORP headers like the POC's worker, so hosts
+ *   without header control (GitHub Pages) still get cross-origin
+ *   isolation where the browser allows it. The database layer does not
+ *   depend on it: it uses the OPFS SAH Pool VFS.
+ * - /api/* requests are answered in-page by utd-boot.js and never
+ *   reach the network; if one ever arrives here it passes untouched.
+ */
+const CACHE = 'utd-shell-v4';
 const SHELL = [
+  './',
   'index.html',
-  'dl-worker.js',
+  'utd-boot.js',
   'db-worker.js',
   'utd-crypto.mjs',
   'index.mjs',
   'sqlite3.wasm',
   'sqlite3-opfs-async-proxy.js',
-  'manifest.json',
+  'topics.json',
+  'manifest.webmanifest',
   'icon-192.png',
   'icon-512.png',
   'apple-touch-icon.png',
+  'db_version.txt',
 ];
-
-function withIsolationHeaders(response) {
-  if (response.status === 0) return response;
-  const headers = new Headers(response.headers);
-  headers.set('Cross-Origin-Opener-Policy', 'same-origin');
-  headers.set('Cross-Origin-Embedder-Policy', 'require-corp');
-  headers.set('Cross-Origin-Resource-Policy', 'same-origin');
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
-}
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE);
-    // Cache each shell file independently: one missing file must not
+    // Cache each shell file independently so one missing file cannot
     // fail the whole install.
-    await Promise.all(SHELL.map(async (path) => {
+    await Promise.all(SHELL.map(async (url) => {
       try {
-        const res = await fetch(path);
-        if (res.ok) await cache.put(path, res);
-      } catch (e) { /* offline install — nothing to cache yet */ }
+        const res = await fetch(url, { cache: 'reload' });
+        if (res && res.ok) await cache.put(url, res);
+      } catch (e) { /* leave it; network-first will fetch it later */ }
     }));
     await self.skipWaiting();
   })());
@@ -62,28 +53,41 @@ self.addEventListener('activate', (event) => {
   })());
 });
 
+function withIsolationHeaders(res) {
+  if (!res || res.status === 0 || !res.headers) return res;
+  const headers = new Headers(res.headers);
+  headers.set('Cross-Origin-Opener-Policy', 'same-origin');
+  headers.set('Cross-Origin-Embedder-Policy', 'require-corp');
+  headers.set('Cross-Origin-Resource-Policy', 'same-origin');
+  return new Response(res.body, {
+    status: res.status,
+    statusText: res.statusText,
+    headers,
+  });
+}
+
 self.addEventListener('fetch', (event) => {
-  const request = event.request;
-  if (request.method !== 'GET') return;
-  const url = new URL(request.url);
-  if (url.pathname.endsWith('.sqlite')) return; // database download: pass through
-  if (request.cache === 'only-if-cached' && request.mode !== 'same-origin') {
-    return; // Chrome bug workaround for cache-only requests
-  }
-  // Network-first: a cached shell must never freeze the app on an old
-  // version. Online loads always fetch fresh files (and refresh the
-  // cache); the cache answers only when the network fails (offline).
+  const req = event.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/api/')) return; // answered in-page
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
     try {
-      const response = await fetch(request);
-      if (response.ok && url.origin === self.location.origin) {
-        cache.put(request, response.clone()).catch(() => {});
+      const res = await fetch(req, { cache: 'no-cache' });
+      if (res && res.ok) {
+        cache.put(req, res.clone()).catch(() => {});
+        return withIsolationHeaders(res);
       }
-      return withIsolationHeaders(response);
+      throw new Error('bad response ' + (res && res.status));
     } catch (e) {
-      const cached = await cache.match(request, { ignoreSearch: true });
-      if (cached) return withIsolationHeaders(cached);
+      const hit = await cache.match(req, { ignoreSearch: true });
+      if (hit) return withIsolationHeaders(hit);
+      if (req.mode === 'navigate') {
+        const shell = await cache.match('index.html', { ignoreSearch: true });
+        if (shell) return withIsolationHeaders(shell);
+      }
       throw e;
     }
   })());
